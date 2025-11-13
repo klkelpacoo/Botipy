@@ -174,7 +174,7 @@ class MusicControlView(ui.View):
         await interaction.response.send_message("¡Música detenida! Me voy. 👋", ephemeral=True, delete_after=5)
 
 # -----------------------------------------------------------------
-# --- Clase 3: El "Reproductor" (Sin cambios) ---
+# --- Clase 3: El "Reproductor" (¡¡CAMBIO AQUÍ!!) ---
 # -----------------------------------------------------------------
 class MusicPlayer:
     def __init__(self, bot, interaction: discord.Interaction):
@@ -211,10 +211,28 @@ class MusicPlayer:
                 self.current_song = song_data
                 source = await YTDLSource.from_url(song_data['webpage_url'], loop=self.bot.loop, stream=True)
                 
+                # --- INICIO DEL ARREGLO (PRE-BUFFER) ---
+                
+                # 1. Inicia la reproducción (y conexión de FFMPEG)
                 self.voice_client.play(source, after=lambda e: self.bot.loop.call_soon_threadsafe(self.next_song.set))
+                
+                # 2. Pausa el stream de Discord inmediatamente
+                self.voice_client.pause()
+                
+                # 3. El estado deseado es 'reproduciendo' (esto es una pausa interna)
                 self.is_paused = False
                 
+                # 4. Actualiza el panel para el usuario
                 await self.update_panel(source=source)
+                
+                # 5. Espera 1.0 segundo para que FFMPEG llene el buffer
+                await asyncio.sleep(1.0)
+                
+                # 6. Reanuda, SOLO SI el usuario no ha pausado en ese segundo
+                if self.voice_client and self.voice_client.is_paused() and not self.is_paused:
+                    self.voice_client.resume()
+                
+                # --- FIN DEL ARREGLO ---
                 
                 await self.next_song.wait()
                 
@@ -267,7 +285,7 @@ class MusicPlayer:
                 song_data = await YTDLSource.search(self.current_song['title'], loop=self.bot.loop)
                 source = YTDLSource(None, data=song_data)
             except Exception:
-                source = None
+                 source = None
         
         view = MusicControlView(self.bot, self)
         

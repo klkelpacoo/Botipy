@@ -11,16 +11,16 @@ import functools
 # --- Opciones de yt-dlp (MÁXIMA FLEXIBILIDAD) ---
 YTDL_OPTIONS = {
     # CRÍTICO: Simplificamos el formato a 'bestaudio' para aumentar la fiabilidad
-    'format': 'bestaudio', 
+    'format': 'bestaudio',
     'extractaudio': True,
-    'audioformat': 'mp3',
+    # 'audioformat': 'mp3', # <--- ELIMINADO: Innecesario y ralentiza el stream.
     'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s', 'restrictfilenames': True,
     'noplaylist': True, 'nocheckcertificate': True, 'ignoreerrors': False,
     'logtostderr': False, 'quiet': True, 'no_warnings': True,
     'default_search': 'auto', 'source_address': '0.0.0.0',
     
     # Solución de autenticación
-    'cookiefile': 'config/youtube_cookies.txt', 
+    'cookiefile': 'config/youtube_cookies.txt',
     'http_headers': {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
     },
@@ -28,7 +28,7 @@ YTDL_OPTIONS = {
 
 FFMPEG_OPTIONS = {
     # Eliminamos la compensación para ver la latencia real
-    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 
+    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
     'options': '-vn -loglevel quiet',
 }
 
@@ -142,7 +142,7 @@ class MusicControlView(ui.View):
         await interaction.response.send_message("¡Música detenida! Me voy. 👋", ephemeral=True, delete_after=5)
 
 # -----------------------------------------------------------------
-# --- Clase 3: MusicPlayer (Manejador de Estado) (El resto del archivo es igual) ---
+# --- Clase 3: MusicPlayer (Manejador de Estado) (CAMBIOS IMPORTANTES AQUÍ) ---
 # -----------------------------------------------------------------
 class MusicPlayer:
     def __init__(self, bot, interaction: discord.Interaction):
@@ -176,10 +176,25 @@ class MusicPlayer:
                 self.current_song = song_data
                 source = await YTDLSource.from_url(song_data['webpage_url'], loop=self.bot.loop, stream=True)
                 
+                # --- INICIO DE LA LÓGICA DE PRE-BUFFER ---
+                # 1. Inicia la reproducción
                 self.voice_client.play(source, after=lambda e: self.bot.loop.call_soon_threadsafe(self.next_song.set))
-                self.is_paused = False
                 
+                # 2. Pausa interna para que FFMPEG conecte y llene el buffer
+                self.voice_client.pause()
+                
+                # 3. El estado deseado es 'reproduciendo', actualizamos el panel
+                self.is_paused = False
                 await self.update_panel(source=source)
+                
+                # 4. Espera (1.0s es un buen punto de partida para Render)
+                #    Ajusta este valor (ej: 0.5 o 1.5) si sigue fallando o tarda mucho
+                await asyncio.sleep(1.0) 
+                
+                # 5. Reanuda, *solo si* el usuario no ha pausado/detenido mientras tanto
+                if self.voice_client and self.voice_client.is_paused() and not self.is_paused:
+                     self.voice_client.resume()
+                # --- FIN DE LA LÓGICA DE PRE-BUFFER ---
                 
                 await self.next_song.wait()
                 

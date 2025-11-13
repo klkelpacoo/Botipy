@@ -7,22 +7,42 @@ from discord import ui
 import asyncio
 import yt_dlp
 import functools
+from pathlib import Path # Importación clave para rutas seguras
 
-# --- Opciones de YTDL/FFMPEG (Sin cambios) ---
+# --- CONFIGURACIÓN DE RUTA ABSOLUTA ---
+# RUTA DEL ARCHIVO ACTUAL (cogs/music/music.py)
+RUTA_ACTUAL = Path(__file__).resolve()
+
+# **¡CORRECCIÓN!** Navegamos 3 niveles arriba para llegar a la raíz 'Botipy/'
+# music/ -> cogs/ -> Botipy/
+RUTA_PRINCIPAL = RUTA_ACTUAL.parent.parent.parent
+
+# Construye la ruta ABSOLUTA al archivo de cookies
+RUTA_COOKIES_ABSOLUTA = RUTA_PRINCIPAL / "config" / "youtube_cookies.txt"
+
+# Verificación de existencia y creación (si no existe) para evitar Errno 2
+if not RUTA_COOKIES_ABSOLUTA.exists():
+    print(f"Advertencia: El archivo de cookies no existe en {RUTA_COOKIES_ABSOLUTA}. Creando archivo vacío.")
+    # Aseguramos que la carpeta exista antes de crear el archivo
+    RUTA_COOKIES_ABSOLUTA.parent.mkdir(parents=True, exist_ok=True)
+    RUTA_COOKIES_ABSOLUTA.touch()
+
+
+# --- Opciones de YTDL/FFMPEG (MODIFICADO) ---
 YTDL_OPTIONS = {
     'format': 'bestaudio/best', 'extractaudio': True, 'audioformat': 'mp3',
     'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s', 'restrictfilenames': True,
     'noplaylist': True, 'nocheckcertificate': True, 'ignoreerrors': False,
     'logtostderr': False, 'quiet': True, 'no_warnings': True,
     'default_search': 'auto', 'source_address': '0.0.0.0',
-    'cookiefile': 'config/youtube_cookies.txt',
+    'cookiefile': str(RUTA_COOKIES_ABSOLUTA), # <--- ¡CORREGIDO A RUTA ABSOLUTA!
 }
 FFMPEG_OPTIONS = {
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
     'options': '-vn',
 }
 
-# --- Clase 1: YTDLSource (El "Traductor") (Sin cambios) ---
+# --- Clase 1: YTDLSource (El "Traductor") ---
 class YTDLSource(discord.PCMVolumeTransformer):
     def __init__(self, source, *, data, volume=0.5):
         super().__init__(source, volume)
@@ -55,16 +75,13 @@ class YTDLSource(discord.PCMVolumeTransformer):
         return data['entries'][0]
 
 # -----------------------------------------------------------------
-# --- Clase 2: La "Mesa de Mezclas" (Los Botones) ---
+# --- Clase 2: La "Mesa de Mezclas" (Los Botones) (Sin cambios funcionales) ---
 # -----------------------------------------------------------------
 class MusicControlView(ui.View):
-    # ¡timeout=None ELIMINADO! Esta vista no es persistente.
     def __init__(self, bot, player):
-        super().__init__(timeout=1800) # 30 min de timeout por si se queda pausado
+        super().__init__(timeout=1800)
         self.bot = bot
-        self.player = player # ¡Referencia al reproductor!
-        
-        # Actualizamos los botones al crearlos
+        self.player = player
         self.update_buttons()
 
     def update_buttons(self):
@@ -92,9 +109,10 @@ class MusicControlView(ui.View):
             self.loop_button.emoji = "🔁"
             
         # Deshabilitar botones si no hay nada sonando
-        if not self.player.current_song:
-            self.play_pause_button.disabled = True
-            self.skip_button.disabled = True
+        if hasattr(self, 'play_pause_button'):
+            if not self.player.current_song:
+                self.play_pause_button.disabled = True
+                self.skip_button.disabled = True
 
     async def check_permissions(self, interaction: discord.Interaction) -> bool:
         """Comprueba si el usuario puede usar los botones."""
@@ -120,7 +138,7 @@ class MusicControlView(ui.View):
             await self.player.pause()
         
         await self.player.update_panel()
-        await interaction.response.defer() # Solo para confirmar el clic
+        await interaction.response.defer()
 
     @ui.button(label="Saltar", style=discord.ButtonStyle.secondary, emoji="⏭️")
     async def skip_button(self, interaction: discord.Interaction, button: ui.Button):
@@ -156,7 +174,7 @@ class MusicControlView(ui.View):
         await interaction.response.send_message("¡Música detenida! Me voy. 👋", ephemeral=True, delete_after=5)
 
 # -----------------------------------------------------------------
-# --- Clase 3: El "Reproductor" (¡ACTUALIZADO!) ---
+# --- Clase 3: El "Reproductor" (Sin cambios) ---
 # -----------------------------------------------------------------
 class MusicPlayer:
     def __init__(self, bot, interaction: discord.Interaction):
@@ -170,7 +188,7 @@ class MusicPlayer:
         self.player_loop_task = None
         self.panel_message = None
         self.is_paused = False
-        self.loop_mode = "none" # "none", "song", "queue"
+        self.loop_mode = "none"
 
     async def connect_vc(self, channel: discord.VoiceChannel):
         if self.voice_client:
@@ -228,7 +246,7 @@ class MusicPlayer:
         if self.player_loop_task:
             self.player_loop_task.cancel()
             self.player_loop_task = None
-        
+            
         self.queue = asyncio.Queue()
         
         if self.panel_message:
@@ -246,11 +264,12 @@ class MusicPlayer:
         """Crea o edita el panel de control."""
         if not source and self.current_song:
             try:
-                source = await YTDLSource.from_url(self.current_song['webpage_url'], loop=self.bot.loop, stream=True)
+                song_data = await YTDLSource.search(self.current_song['title'], loop=self.bot.loop)
+                source = YTDLSource(None, data=song_data)
             except Exception:
-                pass 
+                source = None
         
-        view = MusicControlView(self.bot, self) # Creamos la vista con el estado actualizado
+        view = MusicControlView(self.bot, self)
         
         if not source:
             if self.panel_message:
@@ -296,13 +315,12 @@ class MusicPlayer:
         return self.loop_mode.capitalize()
 
 # -----------------------------------------------------------------
-# --- Clase 4: El "Control Remoto" (¡ACTUALIZADO!) ---
+# --- Clase 4: El "Control Remoto" (MODIFICADO) ---
 # -----------------------------------------------------------------
 class Music(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.players = {}
-        # ¡IMPORTANTE! YA NO registramos la vista aquí.
 
     def get_player(self, interaction: discord.Interaction) -> MusicPlayer:
         """Obtiene el reproductor del servidor, o crea uno nuevo."""
@@ -323,13 +341,15 @@ class Music(commands.Cog):
             await interaction.response.send_message("¡Debes estar en un canal de voz para pedir música!", ephemeral=True)
             return
             
-        await interaction.response.defer() 
+        # *** MODIFICACIÓN CLAVE: Deferir la respuesta inmediatamente ***
+        await interaction.response.defer()
         
         player = self.get_player(interaction)
         
         try:
             await player.connect_vc(interaction.user.voice.channel)
             song_data = await YTDLSource.search(busqueda, loop=self.bot.loop)
+            
             await player.queue.put(song_data)
             await player.start_player_loop()
             
@@ -339,10 +359,11 @@ class Music(commands.Cog):
                 color=discord.Color.green()
             )
             embed.set_thumbnail(url=song_data['thumbnail'])
+            
             await interaction.followup.send(embed=embed, ephemeral=True)
             
         except Exception as e:
-            await interaction.followup.send(f"Error al buscar o añadir la canción: {e}", ephemeral=True)
+            await interaction.followup.send(f"❌ Error al buscar o añadir la canción: {e}", ephemeral=True)
             return
             
     @app_commands.command(name="queue", description="Muestra la cola de reproducción.")
@@ -360,21 +381,20 @@ class Music(commands.Cog):
             queue_list_str = ""
             for i, song in enumerate(list(player.queue._queue)):
                 queue_list_str += f"**{i+1}.** [{song['title']}]({song['webpage_url']})\n"
-                if i >= 9:
+                if i >= 9 and player.queue.qsize() > 10:
                     queue_list_str += f"...y {player.queue.qsize() - (i+1)} más."
                     break
             embed.add_field(name="A Continuación:", value=queue_list_str, inline=False)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    # --- ¡NUEVO! Evento de limpieza ---
+    # --- Evento de limpieza ---
     @commands.Cog.listener()
     async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
         """Limpia el reproductor si el bot es desconectado manualmente."""
         if member.id != self.bot.user.id:
-            return # Solo nos importa si el bot es movido
+            return
             
         if before.channel is not None and after.channel is None:
-            # El bot fue desconectado
             if member.guild.id in self.players:
                 player = self.players.pop(member.guild.id)
                 await player.disconnect()
@@ -382,5 +402,4 @@ class Music(commands.Cog):
 
 # --- Función Setup ---
 async def setup(bot: commands.Bot):
-
     await bot.add_cog(Music(bot))

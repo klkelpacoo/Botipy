@@ -38,7 +38,7 @@ YTDL_OPTIONS = {
     'cookiefile': str(RUTA_COOKIES_ABSOLUTA), # <--- ¡CORREGIDO A RUTA ABSOLUTA!
 }
 FFMPEG_OPTIONS = {
-    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -ss 10s',
+    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
     'options': '-vn',
 }
 
@@ -403,4 +403,5 @@ class Music(commands.Cog):
 # --- Función Setup ---
 async def setup(bot: commands.Bot):
     await bot.add_cog(Music(bot))
+
 

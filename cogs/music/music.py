@@ -8,22 +8,16 @@ import asyncio
 import yt_dlp
 import functools
 
-# --- Opciones de YTDL/FFMPEG (ACTUALIZADAS para Estabilidad) ---
+# --- Opciones de yt-dlp (SIMULACIÓN FINAL Y FLEXIBLE) ---
 YTDL_OPTIONS = {
-    # CRÍTICO: Reducimos el formato a 128kbps (formato 140) para menor ancho de banda
-    'format': '140', 
+    # CRÍTICO: CAMBIO DE FORMATO. Pedimos el mejor audio disponible (bestaudio)
+    'format': 'bestaudio[ext=m4a]/bestaudio', 
     'extractaudio': True,
     'audioformat': 'mp3',
-    'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
-    'restrictfilenames': True,
-    'noplaylist': True, 
-    'nocheckcertificate': True,
-    'ignoreerrors': False,
-    'logtostderr': False,
-    'quiet': True,
-    'no_warnings': True,
-    'default_search': 'auto',
-    'source_address': '0.0.0.0', 
+    'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s', 'restrictfilenames': True,
+    'noplaylist': True, 'nocheckcertificate': True, 'ignoreerrors': False,
+    'logtostderr': False, 'quiet': True, 'no_warnings': True,
+    'default_search': 'auto', 'source_address': '0.0.0.0',
     
     # Solución de autenticación
     'cookiefile': 'config/youtube_cookies.txt', 
@@ -33,7 +27,6 @@ YTDL_OPTIONS = {
 }
 
 FFMPEG_OPTIONS = {
-    # CRÍTICO: Compensación de latencia de 20s
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -ss 20s', 
     'options': '-vn -loglevel quiet',
 }
@@ -146,7 +139,9 @@ class MusicControlView(ui.View):
         if player_to_stop: await player_to_stop.disconnect()
         await interaction.response.send_message("¡Música detenida! Me voy. 👋", ephemeral=True, delete_after=5)
 
-# --- Clase 3: MusicPlayer (Manejador de Estado) (El resto del archivo es igual) ---
+# -----------------------------------------------------------------
+# --- Clase 3: MusicPlayer (Manejador de Estado) (Sin cambios) ---
+# -----------------------------------------------------------------
 class MusicPlayer:
     def __init__(self, bot, interaction: discord.Interaction):
         self.bot = bot
@@ -241,7 +236,7 @@ class MusicPlayer:
         elif self.loop_mode == "queue": self.loop_mode = "none"
         return self.loop_mode.capitalize()
 
-# --- Clase 4: Music (Cog Comandos) (El resto del archivo es igual) ---
+# --- Clase 4: Music (Cog Comandos) (Sin cambios) ---
 class Music(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot

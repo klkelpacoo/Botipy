@@ -4,18 +4,38 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 import pathlib
-import threading # ¡NUEVO! Para correr el servidor web
-from flask import Flask # ¡NUEVO! La librería del micro-servidor web
+import threading 
+from flask import Flask 
 
 # --- Configuración Inicial ---
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 
+# Configuración de Intents (Permisos)
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
+intents.voice_states = True # Necesario para el bot de música
 
 bot = commands.Bot(command_prefix='!', intents=intents)
+
+# -----------------------------------------------------------------
+# --- SERVIDOR WEB PARA UPTIMEROBOT ---
+# -----------------------------------------------------------------
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    """Responde con 200 OK cuando UptimeRobot pida el estado."""
+    # Render espera una respuesta 200 OK en el path raíz
+    return "Bot is running!", 200
+
+def run_webserver():
+    """Función que corre el servidor Flask en un hilo separado."""
+    # Usamos el puerto que Render nos da (o el 10000 por defecto)
+    app.run(host='0.0.0.0', port=os.getenv('PORT', 10000))
+# -----------------------------------------------------------------
+
 
 # --- Evento 'on_ready' ---
 @bot.event
@@ -33,24 +53,16 @@ async def setup_hook():
     """
     print("Cargando Cogs...")
     
-    # 1. Definimos la ruta a la carpeta 'cogs'
     cogs_path = pathlib.Path('./cogs')
     
-    # 2. Usamos .rglob('*.py') para buscar RECURSIVAMENTE
-    #    todos los archivos .py en 'cogs' y sus subdirectorios.
+    # Usamos .rglob('*.py') para buscar RECURSIVAMENTE
     for file_path in cogs_path.rglob('*.py'):
-        # No cargamos archivos __init__
         if file_path.name == '__init__.py':
             continue
 
-        # 3. Convertimos la ruta del archivo al formato de módulo de Python
-        #    Ej: "cogs/moderacion/kick.py" -> "cogs.moderacion.kick"
-        
-        # Obtenemos las partes de la ruta (ej: ['cogs', 'moderacion', 'kick.py'])
+        # Convertimos la ruta del archivo al formato de módulo de Python
         parts = list(file_path.parts)
-        # Quitamos la extensión .py del último elemento
         parts[-1] = parts[-1][:-3]
-        # Unimos las partes con puntos
         cog_name = ".".join(parts)
         
         try:
@@ -66,24 +78,6 @@ async def setup_hook():
     except Exception as e:
         print(f"Error al sincronizar comandos: {e}")
 
-# -----------------------------------------------------------------
-# --- ¡NUEVO! SERVIDOR WEB PARA UPTIMEROBOT ---
-# -----------------------------------------------------------------
-app = Flask(__name__)
-
-@app.route('/')
-def home():
-    """Responde con 200 OK cuando UptimeRobot pida el estado."""
-    # Render espera una respuesta 200 OK en el path raíz
-    return "Bot is running!", 200
-
-def run_webserver():
-    """Función que corre el servidor Flask en un hilo separado."""
-    # Usamos el puerto que Render nos da (o el 10000 por defecto)
-    # 0.0.0.0 es necesario para que sea accesible externamente
-    app.run(host='0.0.0.0', port=os.getenv('PORT', 10000))
-# -----------------------------------------------------------------
-
 
 # --- Ejecución del Bot ---
 if __name__ == "__main__":
@@ -91,7 +85,7 @@ if __name__ == "__main__":
         # ¡CRUCIAL! Iniciamos el servidor web en un hilo separado
         threading.Thread(target=run_webserver).start()
         
-        # Luego, el bot de Discord arranca en el hilo principal
+        # Luego, el bot de Discord arranca en el hilo principal (Asyncio)
         bot.run(TOKEN)
     else:
         print("Error: No se encontró el DISCORD_TOKEN en el archivo .env")

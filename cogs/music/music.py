@@ -7,26 +7,7 @@ from discord import ui
 import asyncio
 import yt_dlp
 import functools
-from pathlib import Path # Importación clave para rutas seguras
-
-# --- CONFIGURACIÓN DE RUTA ABSOLUTA ---
-# RUTA DEL ARCHIVO ACTUAL (cogs/music/music.py)
-RUTA_ACTUAL = Path(__file__).resolve()
-
-# **¡CORRECCIÓN!** Navegamos 3 niveles arriba para llegar a la raíz 'Botipy/'
-# music/ -> cogs/ -> Botipy/
-RUTA_PRINCIPAL = RUTA_ACTUAL.parent.parent.parent
-
-# Construye la ruta ABSOLUTA al archivo de cookies
-RUTA_COOKIES_ABSOLUTA = RUTA_PRINCIPAL / "config" / "youtube_cookies.txt"
-
-# Verificación de existencia y creación (si no existe) para evitar Errno 2
-if not RUTA_COOKIES_ABSOLUTA.exists():
-    print(f"Advertencia: El archivo de cookies no existe en {RUTA_COOKIES_ABSOLUTA}. Creando archivo vacío.")
-    # Aseguramos que la carpeta exista antes de crear el archivo
-    RUTA_COOKIES_ABSOLUTA.parent.mkdir(parents=True, exist_ok=True)
-    RUTA_COOKIES_ABSOLUTA.touch()
-
+# Ya no necesitamos 'pathlib' porque no gestionamos la ruta de las cookies
 
 # --- Opciones de YTDL/FFMPEG (MODIFICADO) ---
 YTDL_OPTIONS = {
@@ -35,7 +16,15 @@ YTDL_OPTIONS = {
     'noplaylist': True, 'nocheckcertificate': True, 'ignoreerrors': False,
     'logtostderr': False, 'quiet': True, 'no_warnings': True,
     'default_search': 'auto', 'source_address': '0.0.0.0',
-    'cookiefile': str(RUTA_COOKIES_ABSOLUTA), # <--- ¡CORREGIDO A RUTA ABSOLUTA!
+    
+    # --- MODIFICACIÓN CLAVE ---
+    # Eliminamos 'cookiefile' - El plugin se encarga de los tokens.
+    # Especificamos el cliente 'mweb' como recomienda la documentación.
+    'extractor_args': {
+        'youtube': {
+            'player_client': 'mweb'
+        }
+    },
 }
 FFMPEG_OPTIONS = {
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
@@ -56,6 +45,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
     @classmethod
     async def from_url(cls, url, *, loop=None, stream=True):
         loop = loop or asyncio.get_event_loop()
+        # YTDL_OPTIONS ahora incluye el player_client y no usa cookies
         with yt_dlp.YoutubeDL(YTDL_OPTIONS) as ydl:
             partial_data = functools.partial(ydl.extract_info, url, download=not stream)
             data = await loop.run_in_executor(None, partial_data)
@@ -75,7 +65,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
         return data['entries'][0]
 
 # -----------------------------------------------------------------
-# --- Clase 2: La "Mesa de Mezclas" (Los Botones) (Sin cambios funcionales) ---
+# --- Clase 2: La "Mesa de Mezclas" (Los Botones) (Sin cambios) ---
 # -----------------------------------------------------------------
 class MusicControlView(ui.View):
     def __init__(self, bot, player):
@@ -85,9 +75,6 @@ class MusicControlView(ui.View):
         self.update_buttons()
 
     def update_buttons(self):
-        """Actualiza el estado de los botones (label, emoji, style)"""
-        
-        # Botón Play/Pause
         if self.player.is_paused:
             self.play_pause_button.label = "Reanudar"
             self.play_pause_button.emoji = "▶️"
@@ -97,7 +84,6 @@ class MusicControlView(ui.View):
             self.play_pause_button.emoji = "⏸️"
             self.play_pause_button.style = discord.ButtonStyle.secondary
 
-        # Botón Loop
         if self.player.loop_mode == "none":
             self.loop_button.style = discord.ButtonStyle.secondary
             self.loop_button.emoji = "➡️"
@@ -108,14 +94,12 @@ class MusicControlView(ui.View):
             self.loop_button.style = discord.ButtonStyle.primary
             self.loop_button.emoji = "🔁"
             
-        # Deshabilitar botones si no hay nada sonando
         if hasattr(self, 'play_pause_button'):
             if not self.player.current_song:
                 self.play_pause_button.disabled = True
                 self.skip_button.disabled = True
 
     async def check_permissions(self, interaction: discord.Interaction) -> bool:
-        """Comprueba si el usuario puede usar los botones."""
         if not interaction.user.voice or not interaction.user.voice.channel:
             await interaction.response.send_message("Debes estar en un canal de voz.", ephemeral=True, delete_after=5)
             return False
@@ -131,12 +115,10 @@ class MusicControlView(ui.View):
     async def play_pause_button(self, interaction: discord.Interaction, button: ui.Button):
         if not await self.check_permissions(interaction):
             return
-            
         if self.player.is_paused:
             await self.player.resume()
         else:
             await self.player.pause()
-        
         await self.player.update_panel()
         await interaction.response.defer()
 
@@ -144,7 +126,6 @@ class MusicControlView(ui.View):
     async def skip_button(self, interaction: discord.Interaction, button: ui.Button):
         if not await self.check_permissions(interaction):
             return
-            
         if self.player.voice_client and self.player.voice_client.is_playing():
             self.player.voice_client.stop()
             await interaction.response.send_message("¡Canción saltada!", ephemeral=True, delete_after=5)
@@ -155,7 +136,6 @@ class MusicControlView(ui.View):
     async def loop_button(self, interaction: discord.Interaction, button: ui.Button):
         if not await self.check_permissions(interaction):
             return
-            
         new_mode = await self.player.toggle_loop()
         await self.player.update_panel()
         await interaction.response.send_message(f"Modo de repetición: **{new_mode}**", ephemeral=True, delete_after=5)
@@ -164,13 +144,9 @@ class MusicControlView(ui.View):
     async def stop_button(self, interaction: discord.Interaction, button: ui.Button):
         if not await self.check_permissions(interaction):
             return
-
-        # Sacamos el player del diccionario ANTES de desconectar
         player_to_stop = self.bot.get_cog("Music").players.pop(interaction.guild.id, None)
-        
         if player_to_stop:
             await player_to_stop.disconnect()
-        
         await interaction.response.send_message("¡Música detenida! Me voy. 👋", ephemeral=True, delete_after=5)
 
 # -----------------------------------------------------------------
@@ -207,17 +183,12 @@ class MusicPlayer:
         while True:
             try:
                 song_data = await asyncio.wait_for(self.queue.get(), timeout=300.0)
-                
                 self.current_song = song_data
                 source = await YTDLSource.from_url(song_data['webpage_url'], loop=self.bot.loop, stream=True)
-                
                 self.voice_client.play(source, after=lambda e: self.bot.loop.call_soon_threadsafe(self.next_song.set))
                 self.is_paused = False
-                
                 await self.update_panel(source=source)
-                
                 await self.next_song.wait()
-                
             except asyncio.TimeoutError:
                 await self.disconnect()
                 try:
@@ -237,31 +208,25 @@ class MusicPlayer:
                     self.queue._queue.appendleft(self.current_song)
                 elif self.loop_mode == "queue" and self.current_song:
                     await self.queue.put(self.current_song)
-                
                 self.current_song = None
                 self.next_song.clear()
                 
     async def disconnect(self):
-        """Detiene todo, borra el panel y se desconecta."""
         if self.player_loop_task:
             self.player_loop_task.cancel()
             self.player_loop_task = None
-            
         self.queue = asyncio.Queue()
-        
         if self.panel_message:
             try:
                 await self.panel_message.edit(content="Reproductor detenido. 👋", embed=None, view=None, delete_after=10)
             except discord.NotFound:
                 pass
             self.panel_message = None
-            
         if self.voice_client:
             await self.voice_client.disconnect()
             self.voice_client = None
 
     async def update_panel(self, source=None):
-        """Crea o edita el panel de control."""
         if not source and self.current_song:
             try:
                 song_data = await YTDLSource.search(self.current_song['title'], loop=self.bot.loop)
@@ -342,6 +307,7 @@ class Music(commands.Cog):
             return
             
         # *** MODIFICACIÓN CLAVE: Deferir la respuesta inmediatamente ***
+        # Esto previene el error '404 Unknown interaction'
         await interaction.response.defer()
         
         player = self.get_player(interaction)
@@ -360,9 +326,11 @@ class Music(commands.Cog):
             )
             embed.set_thumbnail(url=song_data['thumbnail'])
             
+            # Usamos followup.send después de response.defer()
             await interaction.followup.send(embed=embed, ephemeral=True)
             
         except Exception as e:
+            # Usamos followup.send para reportar el error después de deferir
             await interaction.followup.send(f"❌ Error al buscar o añadir la canción: {e}", ephemeral=True)
             return
             
@@ -390,15 +358,12 @@ class Music(commands.Cog):
     # --- Evento de limpieza ---
     @commands.Cog.listener()
     async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
-        """Limpia el reproductor si el bot es desconectado manualmente."""
         if member.id != self.bot.user.id:
             return
-            
         if before.channel is not None and after.channel is None:
             if member.guild.id in self.players:
                 player = self.players.pop(member.guild.id)
                 await player.disconnect()
-
 
 # --- Función Setup ---
 async def setup(bot: commands.Bot):

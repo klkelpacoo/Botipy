@@ -3,7 +3,9 @@ import os
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
-import pathlib # ¡Importamos la librería Pathlib!
+import pathlib
+import threading # ¡NUEVO! Para correr el servidor web
+from flask import Flask # ¡NUEVO! La librería del micro-servidor web
 
 # --- Configuración Inicial ---
 load_dotenv()
@@ -64,9 +66,32 @@ async def setup_hook():
     except Exception as e:
         print(f"Error al sincronizar comandos: {e}")
 
+# -----------------------------------------------------------------
+# --- ¡NUEVO! SERVIDOR WEB PARA UPTIMEROBOT ---
+# -----------------------------------------------------------------
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    """Responde con 200 OK cuando UptimeRobot pida el estado."""
+    # Render espera una respuesta 200 OK en el path raíz
+    return "Bot is running!", 200
+
+def run_webserver():
+    """Función que corre el servidor Flask en un hilo separado."""
+    # Usamos el puerto que Render nos da (o el 10000 por defecto)
+    # 0.0.0.0 es necesario para que sea accesible externamente
+    app.run(host='0.0.0.0', port=os.getenv('PORT', 10000))
+# -----------------------------------------------------------------
+
+
 # --- Ejecución del Bot ---
 if __name__ == "__main__":
     if TOKEN:
+        # ¡CRUCIAL! Iniciamos el servidor web en un hilo separado
+        threading.Thread(target=run_webserver).start()
+        
+        # Luego, el bot de Discord arranca en el hilo principal
         bot.run(TOKEN)
     else:
         print("Error: No se encontró el DISCORD_TOKEN en el archivo .env")

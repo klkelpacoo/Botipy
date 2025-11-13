@@ -8,29 +8,33 @@ import asyncio
 import yt_dlp
 import functools
 
-# --- Opciones de yt-dlp (SIMULACIÓN FINAL) ---
+# --- Opciones de YTDL/FFMPEG (ACTUALIZADAS para Estabilidad) ---
 YTDL_OPTIONS = {
-    'format': 'bestaudio/best', 'extractaudio': True, 'audioformat': 'mp3',
-    'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s', 'restrictfilenames': True,
-    'noplaylist': True, 'nocheckcertificate': True, 'ignoreerrors': False,
-    'logtostderr': False, 'quiet': True, 'no_warnings': True,
-    'default_search': 'auto', 'source_address': '0.0.0.0',
+    # CRÍTICO: Reducimos el formato a 128kbps (formato 140) para menor ancho de banda
+    'format': '140', 
+    'extractaudio': True,
+    'audioformat': 'mp3',
+    'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
+    'restrictfilenames': True,
+    'noplaylist': True, 
+    'nocheckcertificate': True,
+    'ignoreerrors': False,
+    'logtostderr': False,
+    'quiet': True,
+    'no_warnings': True,
+    'default_search': 'auto',
+    'source_address': '0.0.0.0', 
     
-    # 1. COOKIES (Necesita el archivo subido)
+    # Solución de autenticación
     'cookiefile': 'config/youtube_cookies.txt', 
-    
-    # 2. USER-AGENT (Simulación del Navegador)
     'http_headers': {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
     },
-    
-    # 3. MWEB CLIENT (Workaround para PO Token)
-    'extractor_args': {'youtube': {'player_skip': ['webpage', 'configs'], 'client': 'mweb'}},
 }
 
-# --- Opciones de FFMPEG (Estables) ---
 FFMPEG_OPTIONS = {
-    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+    # CRÍTICO: Compensación de latencia de 20s
+    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -ss 20s', 
     'options': '-vn -loglevel quiet',
 }
 
@@ -70,7 +74,6 @@ class YTDLSource(discord.PCMVolumeTransformer):
 # --- Clase 2: La "Mesa de Mezclas" (Los Botones) (Sin cambios) ---
 # -----------------------------------------------------------------
 class MusicControlView(ui.View):
-    # (El código de la vista de botones sigue aquí...)
     def __init__(self, bot, player):
         super().__init__(timeout=1800)
         self.bot = bot
@@ -143,7 +146,7 @@ class MusicControlView(ui.View):
         if player_to_stop: await player_to_stop.disconnect()
         await interaction.response.send_message("¡Música detenida! Me voy. 👋", ephemeral=True, delete_after=5)
 
-# --- Clase 3: MusicPlayer (Manejador de Estado) (Sin cambios) ---
+# --- Clase 3: MusicPlayer (Manejador de Estado) (El resto del archivo es igual) ---
 class MusicPlayer:
     def __init__(self, bot, interaction: discord.Interaction):
         self.bot = bot
@@ -238,7 +241,7 @@ class MusicPlayer:
         elif self.loop_mode == "queue": self.loop_mode = "none"
         return self.loop_mode.capitalize()
 
-# --- Clase 4: Music (Cog Comandos) (Sin cambios) ---
+# --- Clase 4: Music (Cog Comandos) (El resto del archivo es igual) ---
 class Music(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot

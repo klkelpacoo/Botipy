@@ -9,11 +9,14 @@ import yt_dlp
 import functools
 from pathlib import Path # Importación clave para rutas seguras
 
-# --- CONFIGURACIÓN DE RUTA ABSOLUTA (TU CÓDIGO) ---
+# --- CONFIGURACIÓN DE RUTA ABSOLUTA ---
 # RUTA DEL ARCHIVO ACTUAL (cogs/music/music.py)
 RUTA_ACTUAL = Path(__file__).resolve()
-# Navegamos 3 niveles arriba para llegar a la raíz 'Botipy/'
+
+# **¡CORRECCIÓN!** Navegamos 3 niveles arriba para llegar a la raíz 'Botipy/'
+# music/ -> cogs/ -> Botipy/
 RUTA_PRINCIPAL = RUTA_ACTUAL.parent.parent.parent
+
 # Construye la ruta ABSOLUTA al archivo de cookies
 RUTA_COOKIES_ABSOLUTA = RUTA_PRINCIPAL / "config" / "youtube_cookies.txt"
 
@@ -25,25 +28,18 @@ if not RUTA_COOKIES_ABSOLUTA.exists():
     RUTA_COOKIES_ABSOLUTA.touch()
 
 
-# --- Opciones de YTDL/FFMPEG (CORREGIDO) ---
+# --- Opciones de YTDL/FFMPEG (MODIFICADO) ---
 YTDL_OPTIONS = {
-    # *** ¡¡ESTA ES LA CORRECCIÓN!! ***
-    # 'bestaudio' es la opción correcta para STREAMING de solo audio.
-    # Opciones como 'bestvideo+bestaudio' son para DESCARGAR y causan "error formato".
-    'format': 'bestaudio', 
-    'extractaudio': True,
-    # 'audioformat': 'mp3', # ELIMINADO: Causa lentitud
+    'format': 'bestaudio/best', 'extractaudio': True, 'audioformat': 'mp3',
     'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s', 'restrictfilenames': True,
     'noplaylist': True, 'nocheckcertificate': True, 'ignoreerrors': False,
     'logtostderr': False, 'quiet': True, 'no_warnings': True,
     'default_search': 'auto', 'source_address': '0.0.0.0',
-    # Usamos tu ruta absoluta
-    'cookiefile': str(RUTA_COOKIES_ABSOLUTA),
+    'cookiefile': str(RUTA_COOKIES_ABSOLUTA), # <--- ¡CORREGIDO A RUTA ABSOLUTA!
 }
-
 FFMPEG_OPTIONS = {
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
-    'options': '-vn -loglevel quiet', 
+    'options': '-vn',
 }
 
 # --- Clase 1: YTDLSource (El "Traductor") ---
@@ -79,7 +75,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
         return data['entries'][0]
 
 # -----------------------------------------------------------------
-# --- Clase 2: La "Mesa de Mezclas" (CON EL FIX 'hasattr') ---
+# --- Clase 2: La "Mesa de Mezclas" (Los Botones) (Sin cambios funcionales) ---
 # -----------------------------------------------------------------
 class MusicControlView(ui.View):
     def __init__(self, bot, player):
@@ -91,10 +87,6 @@ class MusicControlView(ui.View):
     def update_buttons(self):
         """Actualiza el estado de los botones (label, emoji, style)"""
         
-        # FIX: 'hasattr' evita el crash al cargar el Cog
-        if not hasattr(self, 'play_pause_button'):
-            return # Salimos si los botones no están listos
-
         # Botón Play/Pause
         if self.player.is_paused:
             self.play_pause_button.label = "Reanudar"
@@ -117,10 +109,10 @@ class MusicControlView(ui.View):
             self.loop_button.emoji = "🔁"
             
         # Deshabilitar botones si no hay nada sonando
-        if not self.player.current_song:
-            self.play_pause_button.disabled = True
-            self.skip_button.disabled = True
-
+        if hasattr(self, 'play_pause_button'):
+            if not self.player.current_song:
+                self.play_pause_button.disabled = True
+                self.skip_button.disabled = True
 
     async def check_permissions(self, interaction: discord.Interaction) -> bool:
         """Comprueba si el usuario puede usar los botones."""
@@ -182,7 +174,7 @@ class MusicControlView(ui.View):
         await interaction.response.send_message("¡Música detenida! Me voy. 👋", ephemeral=True, delete_after=5)
 
 # -----------------------------------------------------------------
-# --- Clase 3: El "Reproductor" (CON EL FIX DEL BUFFER) ---
+# --- Clase 3: El "Reproductor" (Sin cambios) ---
 # -----------------------------------------------------------------
 class MusicPlayer:
     def __init__(self, bot, interaction: discord.Interaction):
@@ -219,18 +211,10 @@ class MusicPlayer:
                 self.current_song = song_data
                 source = await YTDLSource.from_url(song_data['webpage_url'], loop=self.bot.loop, stream=True)
                 
-                # --- INICIO DE LA LÓGICA DE PRE-BUFFER ---
                 self.voice_client.play(source, after=lambda e: self.bot.loop.call_soon_threadsafe(self.next_song.set))
-                self.voice_client.pause()
                 self.is_paused = False
+                
                 await self.update_panel(source=source)
-                
-                # Buffer de 1 segundo
-                await asyncio.sleep(1.0) 
-                
-                if self.voice_client and self.voice_client.is_paused() and not self.is_paused:
-                     self.voice_client.resume()
-                # --- FIN DE LA LÓGICA DE PRE-BUFFER ---
                 
                 await self.next_song.wait()
                 
@@ -280,16 +264,14 @@ class MusicPlayer:
         """Crea o edita el panel de control."""
         if not source and self.current_song:
             try:
-                # Intenta buscar de nuevo si no hay 'source' (para botones)
                 song_data = await YTDLSource.search(self.current_song['title'], loop=self.bot.loop)
-                source = YTDLSource(None, data=song_data) # Crea un 'source' falso solo con datos
+                source = YTDLSource(None, data=song_data)
             except Exception:
-                 source = None
+                source = None
         
         view = MusicControlView(self.bot, self)
         
         if not source:
-            # Si sigue sin haber source, solo actualiza la vista (botones)
             if self.panel_message:
                 try:
                     await self.panel_message.edit(view=view)
@@ -333,7 +315,7 @@ class MusicPlayer:
         return self.loop_mode.capitalize()
 
 # -----------------------------------------------------------------
-# --- Clase 4: El "Control Remoto" (CON EL FIX DEL DEFER) ---
+# --- Clase 4: El "Control Remoto" (MODIFICADO) ---
 # -----------------------------------------------------------------
 class Music(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -355,22 +337,16 @@ class Music(commands.Cog):
     @app_commands.describe(busqueda="El nombre o URL de la canción.")
     async def play(self, interaction: discord.Interaction, busqueda: str):
         
-        # *** 1. FIX DEFER: Se difiere ANTES de cualquier lógica ***
-        try:
-            await interaction.response.defer()
-        except discord.errors.NotFound:
-            print("Error 10062: La interacción expiró incluso antes de poder hacer defer(). Plataforma demasiado lenta.")
-            return
-
-        # *** 2. Comprobaciones (ahora con followup) ***
         if not interaction.user.voice or not interaction.user.voice.channel:
-            await interaction.followup.send("¡Debes estar en un canal de voz para pedir música!", ephemeral=True)
+            await interaction.response.send_message("¡Debes estar en un canal de voz para pedir música!", ephemeral=True)
             return
             
+        # *** MODIFICACIÓN CLAVE: Deferir la respuesta inmediatamente ***
+        await interaction.response.defer()
+        
         player = self.get_player(interaction)
         
         try:
-            # *** 3. Resto de la lógica ***
             await player.connect_vc(interaction.user.voice.channel)
             song_data = await YTDLSource.search(busqueda, loop=self.bot.loop)
             
@@ -399,7 +375,6 @@ class Music(commands.Cog):
         embed = discord.Embed(title="Cola de Reproducción 🎶", color=discord.Color.blue())
         if player.current_song:
             embed.add_field(name="Sonando Ahora:", value=f"**[{player.current_song['title']}]({player.current_song['webpage_url']})**", inline=False)
-        
         if player.queue.empty():
             embed.description = "No hay más canciones en la cola."
         else:

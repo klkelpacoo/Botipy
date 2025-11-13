@@ -4,25 +4,23 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 
-# --- ¡NUEVO! Lista de Comandos de Moderador ---
-# Para que el /help sepa qué comandos son "restringidos"
-# Tenemos que mantener esta lista manualmente
+# --- ¡ACTUALIZADO! Lista de Comandos Restringidos ---
+# Incluye comandos de Moderación, Tickets y Admin de Tienda/Economía
 MOD_COMMANDS = [
-    "userinfo", "panel_rol", "additem", "delitem",
-    "kick", "ban", "limpiar", "timeout",
-    "warn", "warnings", "delwarn", "poll",
-    "reportar" # Reportar es de usuario, pero el /report SÍ era de mod
+    "userinfo", 
+    "panel_rol", 
+    "additem", 
+    "delitem",
+    "kick", 
+    "ban", 
+    "limpiar", 
+    "timeout",
+    "warn", 
+    "warnings", 
+    "delwarn", 
+    "poll",
+    "crear_panel_tickets" # ¡NUEVO!
 ]
-# ¡Error en la lógica de arriba! reportar ES de usuario.
-# Lo quito.
-MOD_COMMANDS = [
-    "userinfo", "panel_rol", "additem", "delitem",
-    "kick", "ban", "limpiar", "timeout",
-    "warn", "warnings", "delwarn", "poll"
-    # El menú contextual 'Mostrar UserInfo' también es de mod,
-    # pero no es un comando /
-]
-
 
 # --- Clase del Cog ---
 class Help(commands.Cog):
@@ -38,7 +36,7 @@ class Help(commands.Cog):
     )
     async def help(self, interaction: discord.Interaction, comando: str = None):
         
-        # Hacemos la respuesta efímera para no molestar en el chat
+        # Reconocimiento de la Interacción (CRÍTICO para la nube)
         await interaction.response.defer(ephemeral=True)
         
         # --- CASO 1: /help (General) ---
@@ -50,38 +48,38 @@ class Help(commands.Cog):
                     "Aquí tienes un resumen de mis habilidades.\n"
                     "Usa `/help [comando]` para más detalles (ej: `/help apostar`)."
                 ),
-                color=discord.Color.blurple() # Color de Discord
+                color=discord.Color.blurple()
             )
             
-            # Categorías (las definimos manualmente para máximo estilo)
+            # --- ¡CATEGORÍAS ACTUALIZADAS! ---
             embed.add_field(
                 name="🛡️ Moderación (Para Moderadores)",
-                value="`/kick`, `/ban`, `/timeout`, `/limpiar`, `/warn`, `/warnings`, `/delwarn`, `/userinfo`, `/poll`, `/panel_rol`",
+                value="`/kick`, `/ban`, `/timeout`, `/limpiar`, `/warn`, `/warnings`, `/delwarn`, `/userinfo`, `/poll`",
                 inline=False
             )
             embed.add_field(
-                name="🪙 Economía (¡Tu Dinero!)",
-                value="`/daily`, `/balance`, `/pagar`, `/leaderboard`, `/apostar`",
+                name="🏛️ Soporte y Admin",
+                value="`/crear_panel_tickets`, `/panel_rol`\n*(Tickets usa `/additem` para roles)*",
                 inline=False
             )
             embed.add_field(
-                name="🏪 Tienda (¡Gasta tus Nocoins!)",
-                value="`/tienda`, `/comprar`\n*(Mods: `/additem`, `/delitem`)*",
+                name="🪙 Economía y Casino",
+                value="`/daily`, `/balance`, `/pagar`, `/leaderboard`, `/apostar`, `/tienda`, `/comprar`",
                 inline=False
             )
             embed.add_field(
-                name="🚀 Social & Utilidad (Para Todos)",
-                value="`/rank`, `/reportar`, `/hola`",
+                name="🧠 IA (ChatGPT-like)",
+                value="`/ia` (con historial y fotos), `/ia_reset`",
                 inline=False
             )
             embed.add_field(
-                name="😂 Diversión (Para Todos)",
-                value="`/meme`, `/gif`",
+                name="🎶 Música y Diversión",
+                value="`/play`, `/queue` (y el panel de botones), `/meme`, `/gif`",
                 inline=False
             )
             embed.add_field(
-                name="🔒 Auto-Mod (Siempre Activo)",
-                value="Estoy vigilando 24/7 los enlaces de invitación, mensajes borrados y mensajes editados, reportándolos en los logs.",
+                name="🔒 Auto-Mod & Logs",
+                value="Vigilancia 24/7 de enlaces, mensajes borrados/editados, y logs de tickets.",
                 inline=False
             )
             
@@ -91,9 +89,8 @@ class Help(commands.Cog):
 
         # --- CASO 2: /help [comando] (Específico) ---
         else:
-            comando_nombre = comando.lower().strip("/") # Limpiamos por si ponen "/warn"
+            comando_nombre = comando.lower().strip("/")
             
-            # Buscamos el comando en el "árbol" del bot
             cmd_obj = self.bot.tree.get_command(comando_nombre)
             
             if cmd_obj is None:
@@ -103,7 +100,6 @@ class Help(commands.Cog):
                 )
                 return
 
-            # --- Si encontramos el comando, creamos la ficha ---
             embed = discord.Embed(
                 title=f"Ayuda: `/{cmd_obj.name}`",
                 description=cmd_obj.description or "Este comando no tiene descripción.",
@@ -113,10 +109,8 @@ class Help(commands.Cog):
             # 1. Construir el "Uso"
             uso_str = f"/{cmd_obj.name}"
             for param in cmd_obj.parameters:
-                # [nombre_parametro] (si es opcional)
                 if not param.required:
                     uso_str += f" *[{param.name}]*"
-                # <nombre_parametro> (si es requerido)
                 else:
                     uso_str += f" **<{param.name}>**"
                     

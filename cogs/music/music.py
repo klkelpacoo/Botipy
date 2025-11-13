@@ -1,41 +1,37 @@
 # cogs/music/music.py
 import os
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord import app_commands
 from discord import ui
 import asyncio
 import yt_dlp
 import functools
+# Ya no necesitamos 'pathlib' porque no gestionamos la ruta de las cookies
 
-# --- Opciones de YTDL/FFMPEG (FINAL DE ESTABILIDAD) ---
+# --- Opciones de YTDL/FFMPEG (MODIFICADO) ---
 YTDL_OPTIONS = {
-    # Máxima flexibilidad: Pedimos el mejor audio disponible
-    'format': 'bestaudio', 
-    'extractaudio': True,
-    'audioformat': 'mp3',
+    'format': 'bestaudio/best', 'extractaudio': True, 'audioformat': 'mp3',
     'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s', 'restrictfilenames': True,
     'noplaylist': True, 'nocheckcertificate': True, 'ignoreerrors': False,
     'logtostderr': False, 'quiet': True, 'no_warnings': True,
     'default_search': 'auto', 'source_address': '0.0.0.0',
     
-    # 1. SOLUCIÓN DE AUTENTICACIÓN
-    'cookiefile': 'config/youtube_cookies.txt', 
-    'http_headers': {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    # --- MODIFICACIÓN CLAVE ---
+    # Eliminamos 'cookiefile' - El plugin se encarga de los tokens.
+    # Especificamos el cliente 'mweb' como recomienda la documentación.
+    'extractor_args': {
+        'youtube': {
+            'player_client': 'mweb'
+        }
     },
-    
-    # 2. CRÍTICO: FORZAR MWEB CLIENTE Y SALTAR WEB (Resuelve 403/PO Token)
-    'extractor_args': {'youtube': {'skip': ['webpage', 'configs'], 'client': 'mweb'}},
 }
-
 FFMPEG_OPTIONS = {
-    # Versión limpia y estable. Quitamos el seek que causaba retraso.
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
-    'options': '-vn -loglevel quiet',
+    'options': '-vn',
 }
 
-# --- Clase 1: YTDLSource (El "Traductor") (Sin cambios funcionales) ---
+# --- Clase 1: YTDLSource (El "Traductor") ---
 class YTDLSource(discord.PCMVolumeTransformer):
     def __init__(self, source, *, data, volume=0.5):
         super().__init__(source, volume)
@@ -49,6 +45,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
     @classmethod
     async def from_url(cls, url, *, loop=None, stream=True):
         loop = loop or asyncio.get_event_loop()
+        # YTDL_OPTIONS ahora incluye el player_client y no usa cookies
         with yt_dlp.YoutubeDL(YTDL_OPTIONS) as ydl:
             partial_data = functools.partial(ydl.extract_info, url, download=not stream)
             data = await loop.run_in_executor(None, partial_data)
@@ -97,9 +94,10 @@ class MusicControlView(ui.View):
             self.loop_button.style = discord.ButtonStyle.primary
             self.loop_button.emoji = "🔁"
             
-        if not self.player.current_song:
-            self.play_pause_button.disabled = True
-            self.skip_button.disabled = True
+        if hasattr(self, 'play_pause_button'):
+            if not self.player.current_song:
+                self.play_pause_button.disabled = True
+                self.skip_button.disabled = True
 
     async def check_permissions(self, interaction: discord.Interaction) -> bool:
         if not interaction.user.voice or not interaction.user.voice.channel:
@@ -113,38 +111,46 @@ class MusicControlView(ui.View):
             return False
         return True
 
-    @ui.button(label="Pausa", emoji="⏸️")
+    @ui.button(label="Pausa", style=discord.ButtonStyle.secondary, emoji="⏸️")
     async def play_pause_button(self, interaction: discord.Interaction, button: ui.Button):
-        if not await self.check_permissions(interaction): return
-        if self.player.is_paused: await self.player.resume()
-        else: await self.player.pause()
+        if not await self.check_permissions(interaction):
+            return
+        if self.player.is_paused:
+            await self.player.resume()
+        else:
+            await self.player.pause()
         await self.player.update_panel()
         await interaction.response.defer()
 
-    @ui.button(label="Saltar", emoji="⏭️")
+    @ui.button(label="Saltar", style=discord.ButtonStyle.secondary, emoji="⏭️")
     async def skip_button(self, interaction: discord.Interaction, button: ui.Button):
-        if not await self.check_permissions(interaction): return
+        if not await self.check_permissions(interaction):
+            return
         if self.player.voice_client and self.player.voice_client.is_playing():
             self.player.voice_client.stop()
             await interaction.response.send_message("¡Canción saltada!", ephemeral=True, delete_after=5)
-        else: await interaction.response.send_message("No hay nada que saltar.", ephemeral=True)
+        else:
+            await interaction.response.send_message("No hay nada que saltar.", ephemeral=True, delete_after=5)
 
-    @ui.button(label="Repetir", emoji="➡️")
+    @ui.button(label="Repetir", style=discord.ButtonStyle.secondary, emoji="➡️")
     async def loop_button(self, interaction: discord.Interaction, button: ui.Button):
-        if not await self.check_permissions(interaction): return
+        if not await self.check_permissions(interaction):
+            return
         new_mode = await self.player.toggle_loop()
         await self.player.update_panel()
         await interaction.response.send_message(f"Modo de repetición: **{new_mode}**", ephemeral=True, delete_after=5)
 
     @ui.button(label="Detener", style=discord.ButtonStyle.danger, emoji="⏹️")
     async def stop_button(self, interaction: discord.Interaction, button: ui.Button):
-        if not await self.check_permissions(interaction): return
+        if not await self.check_permissions(interaction):
+            return
         player_to_stop = self.bot.get_cog("Music").players.pop(interaction.guild.id, None)
-        if player_to_stop: await player_to_stop.disconnect()
+        if player_to_stop:
+            await player_to_stop.disconnect()
         await interaction.response.send_message("¡Música detenida! Me voy. 👋", ephemeral=True, delete_after=5)
 
 # -----------------------------------------------------------------
-# --- Clase 3: MusicPlayer (Manejador de Estado) (Sin cambios) ---
+# --- Clase 3: El "Reproductor" (Sin cambios) ---
 # -----------------------------------------------------------------
 class MusicPlayer:
     def __init__(self, bot, interaction: discord.Interaction):
@@ -161,92 +167,128 @@ class MusicPlayer:
         self.loop_mode = "none"
 
     async def connect_vc(self, channel: discord.VoiceChannel):
-        if self.voice_client: await self.voice_client.move_to(channel)
-        else: self.voice_client = await channel.connect()
+        if self.voice_client:
+            await self.voice_client.move_to(channel)
+        else:
+            self.voice_client = await channel.connect()
 
     async def start_player_loop(self):
-        if self.player_loop_task and not self.player_loop_task.done(): return
+        if self.player_loop_task and not self.player_loop_task.done():
+            return
         self.player_loop_task = self.bot.loop.create_task(self.player_loop())
 
-    async def player_loop(self,):
+    async def player_loop(self):
         await self.bot.wait_until_ready()
         
         while True:
             try:
                 song_data = await asyncio.wait_for(self.queue.get(), timeout=300.0)
-                
                 self.current_song = song_data
                 source = await YTDLSource.from_url(song_data['webpage_url'], loop=self.bot.loop, stream=True)
-                
                 self.voice_client.play(source, after=lambda e: self.bot.loop.call_soon_threadsafe(self.next_song.set))
                 self.is_paused = False
-                
                 await self.update_panel(source=source)
-                
                 await self.next_song.wait()
-                
             except asyncio.TimeoutError:
                 await self.disconnect()
-                try: await self.text_channel.send("Me voy, la cola está vacía. 😴", delete_after=30)
-                except discord.HTTPException: pass
+                try:
+                    await self.text_channel.send("Me voy, la cola está vacía. 😴", delete_after=30)
+                except discord.HTTPException:
+                    pass
                 break
             except Exception as e:
                 print(f"Error en el player_loop: {e}")
-                try: await self.text_channel.send(f"Error al reproducir: {e}", embed=None, delete_after=10)
-                except discord.HTTPException: pass
+                try:
+                    await self.text_channel.send(f"Error al reproducir: {e}", embed=None, delete_after=10)
+                except discord.HTTPException:
+                    pass
                 continue
             finally:
-                if self.loop_mode == "song" and self.current_song: self.queue._queue.appendleft(self.current_song)
-                elif self.loop_mode == "queue" and self.current_song: await self.queue.put(self.current_song)
+                if self.loop_mode == "song" and self.current_song:
+                    self.queue._queue.appendleft(self.current_song)
+                elif self.loop_mode == "queue" and self.current_song:
+                    await self.queue.put(self.current_song)
                 self.current_song = None
                 self.next_song.clear()
                 
     async def disconnect(self):
-        if self.player_loop_task: self.player_loop_task.cancel(); self.player_loop_task = None
+        if self.player_loop_task:
+            self.player_loop_task.cancel()
+            self.player_loop_task = None
         self.queue = asyncio.Queue()
         if self.panel_message:
-            try: await self.panel_message.edit(content="Reproductor detenido. 👋", embed=None, view=None, delete_after=10)
-            except discord.NotFound: pass
+            try:
+                await self.panel_message.edit(content="Reproductor detenido. 👋", embed=None, view=None, delete_after=10)
+            except discord.NotFound:
+                pass
             self.panel_message = None
-        if self.voice_client: await self.voice_client.disconnect(); self.voice_client = None
+        if self.voice_client:
+            await self.voice_client.disconnect()
+            self.voice_client = None
 
     async def update_panel(self, source=None):
         if not source and self.current_song:
-            try: source = await YTDLSource.from_url(self.current_song['webpage_url'], loop=self.bot.loop, stream=True)
-            except Exception: pass 
+            try:
+                song_data = await YTDLSource.search(self.current_song['title'], loop=self.bot.loop)
+                source = YTDLSource(None, data=song_data)
+            except Exception:
+                source = None
+        
         view = MusicControlView(self.bot, self)
+        
         if not source:
             if self.panel_message:
-                try: await self.panel_message.edit(view=view)
-                except discord.NotFound: self.panel_message = None
+                try:
+                    await self.panel_message.edit(view=view)
+                except discord.NotFound:
+                    self.panel_message = None
             return
-        embed = discord.Embed(title="Reproduciendo Ahora 🎶", description=f"**[{source.title}]({source.url})**\nPor: {source.uploader}", color=discord.Color.random())
+
+        embed = discord.Embed(
+            title="Reproduciendo Ahora 🎶",
+            description=f"**[{source.title}]({source.url})**\nPor: {source.uploader}",
+            color=discord.Color.random()
+        )
         embed.set_thumbnail(url=source.thumbnail)
         embed.set_footer(text=f"Loop: {self.loop_mode.capitalize()} | {'Pausado' if self.is_paused else 'Reproduciendo'}")
+        
         if self.panel_message:
-            try: await self.panel_message.edit(embed=embed, view=view)
-            except discord.NotFound: self.panel_message = await self.text_channel.send(embed=embed, view=view)
-        else: self.panel_message = await self.text_channel.send(embed=embed, view=view)
+            try:
+                await self.panel_message.edit(embed=embed, view=view)
+            except discord.NotFound:
+                self.panel_message = await self.text_channel.send(embed=embed, view=view)
+        else:
+            self.panel_message = await self.text_channel.send(embed=embed, view=view)
 
     async def pause(self):
-        if self.voice_client and self.voice_client.is_playing(): self.voice_client.pause(); self.is_paused = True
-        
+        if self.voice_client and self.voice_client.is_playing():
+            self.voice_client.pause()
+            self.is_paused = True
+
     async def resume(self):
-        if self.voice_client and self.voice_client.is_paused(): self.voice_client.resume(); self.is_paused = False
+        if self.voice_client and self.voice_client.is_paused():
+            self.voice_client.resume()
+            self.is_paused = False
             
     async def toggle_loop(self) -> str:
-        if self.loop_mode == "none": self.loop_mode = "song"
-        elif self.loop_mode == "song": self.loop_mode = "queue"
-        elif self.loop_mode == "queue": self.loop_mode = "none"
+        if self.loop_mode == "none":
+            self.loop_mode = "song"
+        elif self.loop_mode == "song":
+            self.loop_mode = "queue"
+        elif self.loop_mode == "queue":
+            self.loop_mode = "none"
         return self.loop_mode.capitalize()
 
-# --- Clase 4: Music (Cog Comandos) (El resto del archivo es igual) ---
+# -----------------------------------------------------------------
+# --- Clase 4: El "Control Remoto" (MODIFICADO) ---
+# -----------------------------------------------------------------
 class Music(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.players = {}
 
     def get_player(self, interaction: discord.Interaction) -> MusicPlayer:
+        """Obtiene el reproductor del servidor, o crea uno nuevo."""
         if interaction.guild.id in self.players:
             player = self.players[interaction.guild.id]
             player.text_channel = interaction.channel
@@ -259,23 +301,39 @@ class Music(commands.Cog):
     @app_commands.command(name="play", description="Reproduce una canción de YouTube (búsqueda o URL).")
     @app_commands.describe(busqueda="El nombre o URL de la canción.")
     async def play(self, interaction: discord.Interaction, busqueda: str):
+        
         if not interaction.user.voice or not interaction.user.voice.channel:
             await interaction.response.send_message("¡Debes estar en un canal de voz para pedir música!", ephemeral=True)
             return
-        await interaction.response.defer() 
+            
+        # *** MODIFICACIÓN CLAVE: Deferir la respuesta inmediatamente ***
+        # Esto previene el error '404 Unknown interaction'
+        await interaction.response.defer()
+        
         player = self.get_player(interaction)
+        
         try:
             await player.connect_vc(interaction.user.voice.channel)
             song_data = await YTDLSource.search(busqueda, loop=self.bot.loop)
+            
             await player.queue.put(song_data)
             await player.start_player_loop()
-            embed = discord.Embed(title="Añadido a la Cola 🎶", description=f"**[{song_data['title']}]({song_data['webpage_url']})**", color=discord.Color.green())
+            
+            embed = discord.Embed(
+                title="Añadido a la Cola 🎶",
+                description=f"**[{song_data['title']}]({song_data['webpage_url']})**",
+                color=discord.Color.green()
+            )
             embed.set_thumbnail(url=song_data['thumbnail'])
+            
+            # Usamos followup.send después de response.defer()
             await interaction.followup.send(embed=embed, ephemeral=True)
+            
         except Exception as e:
-            await interaction.followup.send(f"Error al buscar o añadir la canción: {e}", ephemeral=True)
+            # Usamos followup.send para reportar el error después de deferir
+            await interaction.followup.send(f"❌ Error al buscar o añadir la canción: {e}", ephemeral=True)
             return
-
+            
     @app_commands.command(name="queue", description="Muestra la cola de reproducción.")
     async def queue(self, interaction: discord.Interaction):
         if interaction.guild.id not in self.players:
@@ -291,17 +349,22 @@ class Music(commands.Cog):
             queue_list_str = ""
             for i, song in enumerate(list(player.queue._queue)):
                 queue_list_str += f"**{i+1}.** [{song['title']}]({song['webpage_url']})\n"
-                if i >= 9: queue_list_str += f"...y {player.queue.qsize() - (i+1)} más."; break
+                if i >= 9 and player.queue.qsize() > 10:
+                    queue_list_str += f"...y {player.queue.qsize() - (i+1)} más."
+                    break
             embed.add_field(name="A Continuación:", value=queue_list_str, inline=False)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    # --- Evento de limpieza ---
     @commands.Cog.listener()
     async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
-        if member.id != self.bot.user.id: return
+        if member.id != self.bot.user.id:
+            return
         if before.channel is not None and after.channel is None:
             if member.guild.id in self.players:
                 player = self.players.pop(member.guild.id)
                 await player.disconnect()
 
+# --- Función Setup ---
 async def setup(bot: commands.Bot):
     await bot.add_cog(Music(bot))

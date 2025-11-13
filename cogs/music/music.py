@@ -7,23 +7,15 @@ from discord import ui
 import asyncio
 import yt_dlp
 import functools
-from pathlib import Path # Importación clave para rutas seguras
+from pathlib import Path 
 
 # --- CONFIGURACIÓN DE RUTA ABSOLUTA ---
-# RUTA DEL ARCHIVO ACTUAL (cogs/music/music.py)
 RUTA_ACTUAL = Path(__file__).resolve()
-
-# **¡CORRECCIÓN!** Navegamos 3 niveles arriba para llegar a la raíz 'Botipy/'
-# music/ -> cogs/ -> Botipy/
 RUTA_PRINCIPAL = RUTA_ACTUAL.parent.parent.parent
-
-# Construye la ruta ABSOLUTA al archivo de cookies
 RUTA_COOKIES_ABSOLUTA = RUTA_PRINCIPAL / "config" / "youtube_cookies.txt"
 
-# Verificación de existencia y creación (si no existe) para evitar Errno 2
 if not RUTA_COOKIES_ABSOLUTA.exists():
     print(f"Advertencia: El archivo de cookies no existe en {RUTA_COOKIES_ABSOLUTA}. Creando archivo vacío.")
-    # Aseguramos que la carpeta exista antes de crear el archivo
     RUTA_COOKIES_ABSOLUTA.parent.mkdir(parents=True, exist_ok=True)
     RUTA_COOKIES_ABSOLUTA.touch()
 
@@ -35,7 +27,7 @@ YTDL_OPTIONS = {
     'noplaylist': True, 'nocheckcertificate': True, 'ignoreerrors': False,
     'logtostderr': False, 'quiet': True, 'no_warnings': True,
     'default_search': 'auto', 'source_address': '0.0.0.0',
-    'cookiefile': str(RUTA_COOKIES_ABSOLUTA), # <--- ¡CORREGIDO A RUTA ABSOLUTA!
+    'cookiefile': str(RUTA_COOKIES_ABSOLUTA), 
 }
 FFMPEG_OPTIONS = {
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
@@ -225,8 +217,8 @@ class MusicPlayer:
                 # 4. Actualiza el panel para el usuario
                 await self.update_panel(source=source)
                 
-                # 5. Espera 1.0 segundo para que FFMPEG llene el buffer
-                await asyncio.sleep(1.0)
+                # 5. Espera 2.5 segundos para que FFMPEG llene el buffer (aumentado de 1.0 para hosts lentos)
+                await asyncio.sleep(2.5)
                 
                 # 6. Reanuda, SOLO SI el usuario no ha pausado en ese segundo
                 if self.voice_client and self.voice_client.is_paused() and not self.is_paused:
@@ -285,7 +277,7 @@ class MusicPlayer:
                 song_data = await YTDLSource.search(self.current_song['title'], loop=self.bot.loop)
                 source = YTDLSource(None, data=song_data)
             except Exception:
-                 source = None
+                source = None
         
         view = MusicControlView(self.bot, self)
         

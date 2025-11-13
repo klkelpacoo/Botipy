@@ -25,12 +25,14 @@ if not RUTA_COOKIES_ABSOLUTA.exists():
     RUTA_COOKIES_ABSOLUTA.touch()
 
 
-# --- Opciones de YTDL/FFMPEG (MODIFICADO) ---
+# --- Opciones de YTDL/FFMPEG (CORREGIDO) ---
 YTDL_OPTIONS = {
-    # FORMATO: bestaudio (más rápido)
-    'format': 'bestaudio',
+    # *** ¡¡ESTA ES LA CORRECCIÓN!! ***
+    # 'bestaudio' es la opción correcta para STREAMING de solo audio.
+    # Opciones como 'bestvideo+bestaudio' son para DESCARGAR y causan "error formato".
+    'format': 'bestaudio', 
     'extractaudio': True,
-    # 'audioformat': 'mp3', # <<< ELIMINADO: Esta era la causa de la lentitud
+    # 'audioformat': 'mp3', # ELIMINADO: Causa lentitud
     'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s', 'restrictfilenames': True,
     'noplaylist': True, 'nocheckcertificate': True, 'ignoreerrors': False,
     'logtostderr': False, 'quiet': True, 'no_warnings': True,
@@ -41,7 +43,7 @@ YTDL_OPTIONS = {
 
 FFMPEG_OPTIONS = {
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
-    'options': '-vn -loglevel quiet', # Añadido -loglevel quiet para limpiar logs
+    'options': '-vn -loglevel quiet', 
 }
 
 # --- Clase 1: YTDLSource (El "Traductor") ---
@@ -77,7 +79,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
         return data['entries'][0]
 
 # -----------------------------------------------------------------
-# --- Clase 2: La "Mesa de Mezclas" (CORREGIDO) ---
+# --- Clase 2: La "Mesa de Mezclas" (CON EL FIX 'hasattr') ---
 # -----------------------------------------------------------------
 class MusicControlView(ui.View):
     def __init__(self, bot, player):
@@ -86,13 +88,10 @@ class MusicControlView(ui.View):
         self.player = player
         self.update_buttons()
 
-    # *** ¡¡AQUÍ ESTABA EL ERROR!! ***
     def update_buttons(self):
         """Actualiza el estado de los botones (label, emoji, style)"""
         
-        # *** FIX: Añadido el 'hasattr' que tu código  SÍ tenía ***
-        # Esto evita el crash al cargar el Cog, ya que los botones
-        # aún no existen cuando __init__ llama a esta función.
+        # FIX: 'hasattr' evita el crash al cargar el Cog
         if not hasattr(self, 'play_pause_button'):
             return # Salimos si los botones no están listos
 

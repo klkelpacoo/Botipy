@@ -8,10 +8,10 @@ import asyncio
 import yt_dlp
 import functools
 
-# --- Opciones de yt-dlp (SIMULACIÓN FINAL Y FLEXIBLE) ---
+# --- Opciones de yt-dlp (MÁXIMA FLEXIBILIDAD) ---
 YTDL_OPTIONS = {
-    # CRÍTICO: CAMBIO DE FORMATO. Pedimos el mejor audio disponible (bestaudio)
-    'format': 'bestaudio[ext=m4a]/bestaudio', 
+    # CRÍTICO: Simplificamos el formato a 'bestaudio' para aumentar la fiabilidad
+    'format': 'bestaudio', 
     'extractaudio': True,
     'audioformat': 'mp3',
     'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s', 'restrictfilenames': True,
@@ -27,12 +27,14 @@ YTDL_OPTIONS = {
 }
 
 FFMPEG_OPTIONS = {
-    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -ss 20s', 
+    # Eliminamos la compensación para ver la latencia real
+    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 
     'options': '-vn -loglevel quiet',
 }
 
 # --- Clase 1: YTDLSource (El "Traductor") (Sin cambios funcionales) ---
 class YTDLSource(discord.PCMVolumeTransformer):
+# ... (código)
     def __init__(self, source, *, data, volume=0.5):
         super().__init__(source, volume)
         self.data = data
@@ -64,7 +66,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
         return data['entries'][0]
 
 # -----------------------------------------------------------------
-# --- Clase 2: La "Mesa de Mezclas" (Los Botones) (Sin cambios) ---
+# --- Clase 2: La "Mesa de Mezclas" (El resto del archivo es igual) ---
 # -----------------------------------------------------------------
 class MusicControlView(ui.View):
     def __init__(self, bot, player):
@@ -140,7 +142,7 @@ class MusicControlView(ui.View):
         await interaction.response.send_message("¡Música detenida! Me voy. 👋", ephemeral=True, delete_after=5)
 
 # -----------------------------------------------------------------
-# --- Clase 3: MusicPlayer (Manejador de Estado) (Sin cambios) ---
+# --- Clase 3: MusicPlayer (Manejador de Estado) (El resto del archivo es igual) ---
 # -----------------------------------------------------------------
 class MusicPlayer:
     def __init__(self, bot, interaction: discord.Interaction):
@@ -236,7 +238,7 @@ class MusicPlayer:
         elif self.loop_mode == "queue": self.loop_mode = "none"
         return self.loop_mode.capitalize()
 
-# --- Clase 4: Music (Cog Comandos) (Sin cambios) ---
+# --- Clase 4: Music (Cog Comandos) (El resto del archivo es igual) ---
 class Music(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
